@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// Tabel Pengguna (Mahasiswa, Dosen, Admin)
+model users {
+  id                Int      @id @default(autoincrement())
+  nomorinduk        String   @unique @db.VarChar(200) // Nomor induk unik untuk setiap pengguna
+  nama              String   @db.VarChar(200)         // Nama pengguna
+  email             String   @unique @db.VarChar(200) // Email pengguna
+  password          String   @db.VarChar(200)         // Password pengguna
+  role              String   @db.VarChar(50)          // Peran pengguna (Mahasiswa, Dosen, Admin)
+  mataKuliahDiajarkan MataKuliah[] @relation("MataKuliahDosen") // Relasi antara dosen dan mata kuliah yang diajarkan
+  mataKuliahDiikuti  MataKuliah[] @relation("MataKuliahMahasiswa") // Relasi antara mahasiswa dan mata kuliah yang diikuti
+}
+
+// Tabel Materi untuk menyimpan materi per mata kuliah
+model Materi {
+  id             Int         @id @default(autoincrement()) // Primary Key
+  judul          String      // Judul materi
+  deskripsi      String?     // Deskripsi materi (opsional)
+  tipe           String      // Tipe file (misal: 'dokumen', 'gambar', 'video', 'link')
+  url            String      // URL atau path file materi yang disimpan
+  mataKuliah     MataKuliah  @relation(fields: [mataKuliahId], references: [id]) // Relasi dengan mata kuliah
+  mataKuliahId   Int         // Foreign Key ke Mata Kuliah
+  tanggalDibuat  DateTime    @default(now()) // Tanggal pembuatan materi
+  subMateri      SubMateri[] // Relasi dengan tabel SubMateri
+}
+
+// Tabel SubMateri untuk menyimpan sub-materi yang terkait dengan Materi
+model SubMateri {
+  id             Int         @id @default(autoincrement()) // Primary Key
+  judul          String      // Judul sub-materi
+  deskripsi      String?     // Deskripsi sub-materi (opsional)
+  tipe           String      // Tipe file (misal: 'dokumen', 'gambar', 'video', 'link')
+  url            String      // URL atau path file sub-materi yang disimpan
+  materi         Materi      @relation(fields: [materiId], references: [id]) // Relasi dengan materi utama
+  materiId       Int         // Foreign Key ke Materi
+  tanggalDibuat  DateTime    @default(now()) // Tanggal pembuatan sub-materi
+}
+
+// Tabel Mata Kuliah
+model MataKuliah {
+  id            Int         @id @default(autoincrement()) // ID mata kuliah
+  nama          String      // Nama mata kuliah
+  tanggalMulai  DateTime    // Tanggal mulai mata kuliah
+  tanggalAkhir  DateTime    // Tanggal akhir mata kuliah
+  dosen         users[]     @relation("MataKuliahDosen") // Relasi antara dosen dan mata kuliah
+  mahasiswa     users[]     @relation("MataKuliahMahasiswa") // Relasi antara mahasiswa dan mata kuliah
+  pertemuan     Pertemuan[] // Relasi dengan tabel Pertemuan
+  materi        Materi[]    // Relasi dengan tabel Materi
+  kodeGabung    String      @unique @db.VarChar(100) // Kode untuk mahasiswa bergabung ke mata kuliah
+}
+
+// Tabel Pertemuan untuk tiap mata kuliah
+model Pertemuan {
+  id           Int       @id @default(autoincrement()) // Primary Key
+  tanggal      DateTime  // Tanggal pertemuan
+  mataKuliah   MataKuliah @relation(fields: [mataKuliahId], references: [id]) // Relasi dengan mata kuliah
+  mataKuliahId Int       // Foreign Key ke Mata Kuliah
+}
+
