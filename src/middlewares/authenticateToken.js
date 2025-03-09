@@ -1,16 +1,18 @@
-const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET;
+import multer from "multer";
+import path from "path";
 
-const authenticateToken = (req, res, next) => {
-  const token = req.cookies.jwt;
-  if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
+// Konfigurasi penyimpanan file
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/"); // Folder tempat menyimpan file
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Forbidden: Invalid token' });
+// Middleware multer untuk menerima semua jenis file
+const upload = multer({ storage });
 
-    req.user = user;
-    next();
-  });
-};
-
-module.exports = authenticateToken;
+export default upload;
