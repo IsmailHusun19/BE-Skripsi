@@ -9,92 +9,160 @@ datasource db {
 
 /// Tabel Pengguna (Mahasiswa, Dosen, Admin)
 model users {
-  id                Int                     @id @default(autoincrement())
-  nomorinduk        String                  @unique @db.VarChar(200) // Nomor induk unik untuk setiap pengguna
-  nama              String                  @db.VarChar(200)         // Nama pengguna
-  email             String                  @unique @db.VarChar(200) // Email pengguna
-  password          String                  @db.VarChar(200)         // Password pengguna
-  role              String                  @db.VarChar(50)          // Peran pengguna (Mahasiswa, Dosen, Admin)
-  mataKuliahDiajarkan MataKuliah[]          @relation("MataKuliahDosen")
-  mataKuliahDiikuti  MataKuliahMahasiswa[]  
-  progressSubMateri  MahasiswaProgressSubMateri[]
-  tanggalDaftar     DateTime                 @default(now()) // Waktu pengguna mendaftar
+  id                  Int                          @id @default(autoincrement())
+  nomorinduk          String                       @unique @db.VarChar(200) // Nomor induk unik untuk setiap pengguna
+  nama                String                       @db.VarChar(200) // Nama pengguna
+  email               String                       @unique @db.VarChar(200) // Email pengguna
+  password            String                       @db.VarChar(200) // Password pengguna
+  role                String                       @db.VarChar(50) // Peran pengguna (Mahasiswa, Dosen, Admin)
+  mataKuliahDiajarkan MataKuliah[]                 @relation("MataKuliahDosen")
+  mataKuliahDiikuti   MataKuliahMahasiswa[]
+  progressSubMateri   MahasiswaProgressSubMateri[]
+  jawabanKuis         JawabanMahasiswaKuis[]       @relation("JawabanMahasiswa") // 🔧 Tambah relasi balik ke JawabanMahasiswaKuis
+  tanggalDaftar       DateTime                     @default(now()) // Waktu pengguna mendaftar
+  kuisionerMahasiswa  Kuisioner[]                  @relation("MahasiswaKuisioner")
+  kuisionerDosen      Kuisioner[]                  @relation("DosenKuisioner")
 }
 
 /// Tabel Mata Kuliah
 model MataKuliah {
-  id            Int                        @id @default(autoincrement())
-  nama          String                     
-  dosen         users[]                    @relation("MataKuliahDosen")
-  mahasiswa     MataKuliahMahasiswa[]      
-  materi        Materi[]                   
-  kodeGabung    String                     @unique @db.VarChar(100)
-  tanggalDibuat DateTime                   @default(now()) // Waktu saat dosen membuat mata kuliah
+  id            Int                   @id @default(autoincrement())
+  nama          String
+  dosen         users[]               @relation("MataKuliahDosen")
+  mahasiswa     MataKuliahMahasiswa[]
+  materi        Materi[]
+  kodeGabung    String                @unique @db.VarChar(100)
+  tanggalDibuat DateTime              @default(now()) // Waktu saat dosen membuat mata kuliah
+  kuisioner     Kuisioner[]   @relation("MataKuliahKuisioner")
 }
 
 /// Tabel relasi antara Mahasiswa dan Mata Kuliah
 model MataKuliahMahasiswa {
-  id           Int         @id @default(autoincrement()) 
-  mahasiswa    users       @relation(fields: [mahasiswaId], references: [id])
-  mahasiswaId  Int         
-  mataKuliah   MataKuliah  @relation(fields: [mataKuliahId], references: [id])
-  mataKuliahId Int         
+  id            Int        @id @default(autoincrement())
+  mahasiswa     users   @relation(fields: [mahasiswaId], references: [id], onDelete: Cascade) // Tambahkan onDelete: Cascade
+  mahasiswaId    Int
+  mataKuliah    MataKuliah @relation(fields: [mataKuliahId], references: [id], onDelete: Cascade)
+  mataKuliahId  Int
+  progress      Float      @default(0)
   tanggalGabung DateTime   @default(now()) // Waktu mahasiswa bergabung
 }
 
 /// Tabel Materi
 model Materi {
-  id             Int           @id @default(autoincrement()) // Primary Key
-  judul          String        // Judul materi
-  mataKuliah     MataKuliah    @relation(fields: [mataKuliahId], references: [id]) // Relasi dengan mata kuliah
-  mataKuliahId   Int
-  tanggalDibuat  DateTime      @default(now()) // Tanggal pembuatan materi
-  subMateri      SubMateri[]   // Relasi dengan tabel SubMateri
+  id            Int         @id @default(autoincrement()) // Primary Key
+  judul         String // Judul materi
+  mataKuliah    MataKuliah  @relation(fields: [mataKuliahId], references: [id]) // Relasi dengan mata kuliah
+  mataKuliahId  Int
+  tanggalDibuat DateTime    @default(now()) // Tanggal pembuatan materi
+  subMateri     SubMateri[] // Relasi dengan tabel SubMateri
+  status        Boolean     @default(true)
 }
 
 /// Tabel SubMateri dengan urutan
 model SubMateri {
-  id             Int           @id @default(autoincrement()) // Primary Key
-  judul          String        // Judul sub-materi
-  type           String        // "materi" atau "quiz"
-  isi            String? @db.LongText // Menggunakan LONGTEXT untuk teks panjang
-  materiId       Int
-  materi         Materi        @relation(fields: [materiId], references: [id])
-  fileMateri     FileMateri[]  // Relasi ke file (opsional)
-  GambarMateri   GambarMateri[]  // Relasi ke file (opsional)
-  tanggalDibuat  DateTime      @default(now()) // Tanggal pembuatan sub-materi
+  id                Int                          @id @default(autoincrement()) // Primary Key
+  judul             String // Judul sub-materi
+  type              String // "materi" atau "quiz"
+  isi               String?                      @db.LongText // Menggunakan LONGTEXT untuk teks panjang
+  materiId          Int
+  materi            Materi                       @relation(fields: [materiId], references: [id])
+  fileMateri        FileMateri[] // Relasi ke file (opsional)
+  GambarMateri      GambarMateri[] // Relasi ke file (opsional)
+  tanggalDibuat     DateTime                     @default(now()) // Tanggal pembuatan sub-materi
+  jawabanKuis       JawabanMahasiswaKuis[]       @relation("JawabanSubMateri") // 🔧 Tambah relasi balik ke JawabanMahasiswaKuis
   progressSubMateri MahasiswaProgressSubMateri[] // Relasi untuk mencatat progres mahasiswa dalam sub-materi
 
   // Kolom untuk Kuis
-  pertanyaan    Json?  // Bisa NULL jika tidak diisi
-  pilihan       Json   // Wajib diisi
-  jawabanBenar  Json?  // Bisa NULL jika tidak diisi   // Jawaban benar (misalnya: "A", "B", "C", "D"), null jika bukan kuis
+  pertanyaan        Json? // Bisa NULL jika tidak diisi
+  pilihan           Json // Wajib diisi
+  jawabanBenar      Json? // Bisa NULL jika tidak diisi
+  syaratKelulusan   Int?
+  durasiMengerjakan Int?
+  durasiUlang       Int?
+  urutan            Int // Urutan sub-materi dalam materi tertentu
 }
-
 
 /// Tabel File
 model FileMateri {
-  id             Int        @id @default(autoincrement()) // Primary Key
-  url            String     // URL lokasi file
-  subMateri      SubMateri  @relation(fields: [subMateriId], references: [id], onDelete: Cascade) // Relasi ke SubMateri 
-  subMateriId    Int        // Foreign Key ke SubMateri
+  id          Int       @id @default(autoincrement()) // Primary Key
+  url         String // URL lokasi file
+  subMateri   SubMateri @relation(fields: [subMateriId], references: [id], onDelete: Cascade) // Relasi ke SubMateri 
+  subMateriId Int // Foreign Key ke SubMateri
+  idSoal      Json // Wajib diisi
 }
 
 model GambarMateri {
-  id             Int        @id @default(autoincrement()) // Primary Key
-  url            String     @db.Text
-  subMateri      SubMateri?  @relation(fields: [subMateriId], references: [id], onDelete: Cascade) // Relasi ke SubMateri
-  createdAt      DateTime   @default(now()) // Waktu saat data dibuat
-  subMateriId    Int?        // Foreign Key ke SubMateri
+  id          Int        @id @default(autoincrement()) // Primary Key
+  url         String     @db.Text
+  subMateri   SubMateri? @relation(fields: [subMateriId], references: [id], onDelete: Cascade) // Relasi ke SubMateri
+  createdAt   DateTime   @default(now()) // Waktu saat data dibuat
+  subMateriId Int? // Foreign Key ke SubMateri
 }
 
-/// Tabel Progres Mahasiswa dalam SubMateri
-model MahasiswaProgressSubMateri {
-  id             Int           @id @default(autoincrement()) // Primary Key
-  mahasiswa      users         @relation(fields: [mahasiswaId], references: [id]) // Relasi dengan mahasiswa
-  mahasiswaId    Int           // Foreign Key ke mahasiswa
-  subMateri      SubMateri     @relation(fields: [subMateriId], references: [id]) // Relasi dengan sub-materi
-  subMateriId    Int           // Foreign Key ke SubMateri
-  selesai        Boolean       @default(false) // Apakah sub-materi ini sudah diselesaikan oleh mahasiswa
-  tanggalAkses   DateTime      @default(now()) // Tanggal akses sub-materi
+model JawabanMahasiswaKuis {
+  id                Int       @id @default(autoincrement())
+  mahasiswa         users     @relation(fields: [mahasiswaId], references: [id], onDelete: Cascade, name: "JawabanMahasiswa", map: "fk_jawaban_mahasiswa") 
+  mahasiswaId       Int
+  subMateri         SubMateri @relation(fields: [subMateriId], references: [id], onDelete: Cascade, name: "JawabanSubMateri", map: "fk_jawaban_submateri") 
+  subMateriId       Int
+  jawabanMahasiswa  Json
+  nilai             Json
+  nilaiPertamaLulus Int       @default(-1)
+  attempts          Int       @default(0)
+  statusSelesai     Boolean   @default(false)
+  waktuMulai        DateTime  @default(now())
+  isOngoing         Boolean   @default(false) // Menandai apakah kuis sedang berlangsung
 }
+
+
+model MahasiswaProgressSubMateri {
+  id           Int       @id @default(autoincrement())
+  mahasiswa       users     @relation(fields: [mahasiswaId], references: [id], onDelete: Cascade)
+  mahasiswaId  Int
+  subMateri       SubMateri @relation(fields: [subMateriId], references: [id], onDelete: Cascade)
+  subMateriId  Int
+  selesai      Boolean   @default(false) // Sudah menyelesaikan sub-materi?
+  type         String
+  tanggalAkses DateTime  @default(now())
+  tanggalSelesai DateTime?  // Tambahkan ini
+  @@unique([mahasiswaId, subMateriId]) // Unique constraint di sini
+}
+
+model Kuisioner {
+  id              Int        @id @default(autoincrement())
+  mahasiswa       users      @relation("MahasiswaKuisioner", fields: [mahasiswaId], references: [id], onDelete: Cascade)
+  mahasiswaId     Int
+  dosen           users      @relation("DosenKuisioner", fields: [dosenId], references: [id], onDelete: Cascade)
+  dosenId         Int
+  mataKuliah      MataKuliah @relation("MataKuliahKuisioner", fields: [mataKuliahId], references: [id], onDelete: Cascade)
+  mataKuliahId    Int
+  jawabanKuisioner Json      // Simpan array jawaban
+  saran           String     @db.LongText
+  tanggal         DateTime   @default(now())
+}
+
+model HubungiKami {
+  id        Int      @id @default(autoincrement())
+  nama      String   @db.VarChar(200)
+  email     String   @db.VarChar(200)
+  noTelp    String   @db.VarChar(50)
+  pesan     String   @db.Text
+  tanggal   DateTime @default(now())
+  info      String @default("")
+}
+
+model OtpToken {
+  id        String   @id @default(uuid()) // gunakan UUID
+  email     String
+  otp       String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+
+
+
+

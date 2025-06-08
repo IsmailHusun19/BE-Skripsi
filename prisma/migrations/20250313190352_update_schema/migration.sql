@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE `submateri` ADD COLUMN `durasiMengerjakan` INTEGER NOT NULL DEFAULT 20,
+    ADD COLUMN `durasiUlang` INTEGER NOT NULL DEFAULT 20,
+    ADD COLUMN `syaratKelulusan` INTEGER NOT NULL DEFAULT 80;
