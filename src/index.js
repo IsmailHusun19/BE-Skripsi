@@ -3,20 +3,24 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser'); 
-require('dotenv').config();// Tambahkan ini untuk parsing cookie
+require('dotenv').config();
 const multer = require('multer');
 const path = require('path');
 const cron = require("node-cron");
 const { Prisma } = require("@prisma/client");
 const prisma = new PrismaClient();
 const app = express();
-app.use(express.json());
-app.use(cookieParser()); // Gunakan middleware cookie-parser
 const cors = require('cors')
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+}));
+app.use(cookieParser());
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 const fs = require('fs');
-const uploadDir = path.join(__dirname, '..', 'uploads'); // Folder uploads di luar src
-const { GoogleGenAI } = require("@google/genai");
+const uploadDir = path.join(__dirname, '..', 'uploads');
+const { GoogleGenAI, Files } = require("@google/genai");
 const { format } = require('date-fns');
 const { id } = require('date-fns/locale');
 const sgMail = require('@sendgrid/mail');
@@ -29,12 +33,12 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // Gunakan cors dengan pengaturan yang sesuai
-app.use(cors({
-  origin: 'http://localhost:5173', // Ganti dengan URL frontend Anda
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'], // Menambahkan X-CSRF-Token di allowedHeaders
-  credentials: true // Izinkan pengiriman cookie
-}));
+// app.use(cors({
+//   origin: 'http://localhost:5173', // Ganti dengan URL frontend Anda
+//   methods: ['GET', 'POST', 'PUT', 'DELETE'],
+//   allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'], // Menambahkan X-CSRF-Token di allowedHeaders
+//   credentials: true // Izinkan pengiriman cookie
+// }));
 
 
 const JWT_SECRET = process.env.JWT_SECRET; // Ganti dengan secret Anda
@@ -192,9 +196,6 @@ app.put("/gambar-materi/:id", authenticateToken, async (req, res) => {
 });
 
 // Gambar SubMateri Editor End
-
-// Simulasi penyimpanan OTP sementara (in-memory)
-const otpStore = new Map();
 
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6 digit
@@ -475,11 +476,10 @@ app.post('/login', async (req, res) => {
   
     // Mengatur cookie dengan HttpOnly dan Secure
     res.cookie('jwt', token, {
-      httpOnly: true, // Mencegah akses cookie dari JavaScript
-      // secure: process.env.NODE_ENV === 'production', // Hanya kirim cookie melalui HTTPS jika di lingkungan produksi
-      secure: false, 
-      maxAge: 86400000, // Kedaluwarsa 1 jam dalam milidetik (3600000 ms)
-      sameSite: 'Strict' // Mencegah pengiriman cookie dari domain lain
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 24 * 60 * 60 * 1000,
     });
     console.log('Setting cookie with token:', token);
   
@@ -3113,7 +3113,6 @@ app.get('/laporan/data/mahasiswa/:idMataKuliah', authenticateToken, async (req, 
   }
 });
 
-
 // PUT bar Progress Mahasiswa
 app.put('/progress/mahasiswa/:idMataKuliah', authenticateToken, async (req, res) => {
   try {
@@ -3528,6 +3527,7 @@ app.get('/kuisioner-dosen/:idMatkul/:idKuisioner', authenticateToken, async (req
   }
 });
 
+// Get Data Hubungi kami user
 app.post('/hubungikamisesudahlogin', authenticateToken, async (req, res) => {
   const { noTelp, pesan } = req.body;
 
@@ -3564,6 +3564,7 @@ app.post('/hubungikamisesudahlogin', authenticateToken, async (req, res) => {
   }
 });
 
+// Get Data Hubungi kami pengguna
 app.post('/hubungikami', async (req, res) => {
   const { nama, email, noTelp, pesan } = req.body;
 
@@ -3590,6 +3591,7 @@ app.post('/hubungikami', async (req, res) => {
   }
 });
 
+// Get Data Hubungi kami
 app.get('/hubungi-kami', authenticateToken, async (req, res) => {
   try {
     // Opsional: paginasi, misal dari query ?page=1&limit=10
@@ -3622,6 +3624,790 @@ app.get('/hubungi-kami', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// Tambah Tugas
+app.post("/tambah-tugas/:idMataKuliah", authenticateToken, upload.single("file"),
+  async (req, res) => {
+    const { idMataKuliah } = req.params;
+    const userId = Number(req.user.id);
+    const { judul, deskripsi, deadline } = req.body;
+
+    try {
+      // Ambil data user
+      const user = await prisma.users.findUnique({
+        where: { id: userId },
+        include: { mataKuliahDiajarkan: true },
+      });
+
+      if (!user || (user.role !== "Dosen" && user.role !== "Admin")) {
+        return res
+          .status(403)
+          .json({ error: "Hanya dosen atau admin yang dapat menambah tugas" });
+      }
+
+      const mataKuliah = await prisma.mataKuliah.findUnique({
+        where: { id: parseInt(idMataKuliah) },
+        include: { dosen: true },
+      });
+
+      if (!mataKuliah) {
+        return res
+          .status(404)
+          .json({ error: "Mata kuliah tidak ditemukan" });
+      }
+
+      // Validasi dosen pengajar
+      if (user.role === "Dosen") {
+        const isDosenPengajar = mataKuliah.dosen.some((d) => d.id === userId);
+        if (!isDosenPengajar) {
+          return res.status(403).json({
+            error:
+              "Anda tidak memiliki izin untuk mengelola mata kuliah ini",
+          });
+        }
+      }
+
+      // Simpan tugas baru
+      const tugasBaru = await prisma.tugas.create({
+        data: {
+          judul,
+          deskripsi,
+          deadline: deadline ? new Date(deadline) : null,
+          mataKuliahId: parseInt(idMataKuliah),
+          dosenId: userId,
+        },
+      });
+
+      // Jika ada file yang diupload, simpan ke FileTugas
+      if (req.file) {
+        const fileData = {
+          tugasId: tugasBaru.id,
+          fileName: req.file.originalname,
+          filePath: `/uploads/${req.file.filename}`,
+          fileType: path.extname(req.file.originalname).replace(".", ""),
+          fileSize: req.file.size,
+        };
+      
+        await prisma.fileTugas.create({ data: fileData });
+      }
+
+      res.status(201).json({
+        message: "Tugas berhasil ditambahkan",
+        tugas: tugasBaru,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Gagal menambah tugas" });
+    }
+  }
+);
+
+// Edit Tugas
+app.put("/edit-tugas/:idTugas", authenticateToken, upload.single("file"), async (req, res) => {
+    const { idTugas } = req.params;
+    const userId = Number(req.user.id);
+    const { judul, deskripsi, deadline } = req.body;
+
+    try {
+      // Ambil data user
+      const user = await prisma.users.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user || (user.role !== "Dosen" && user.role !== "Admin")) {
+        return res
+          .status(403)
+          .json({ error: "Hanya dosen atau admin yang dapat mengedit tugas" });
+      }
+
+      // Ambil tugas yang akan diedit beserta mata kuliah dan dosen pengajarnya
+      const tugas = await prisma.tugas.findUnique({
+        where: { id: parseInt(idTugas) },
+        include: {
+          mataKuliah: {
+            include: {
+              dosen: true,
+            },
+          },
+          files: true,  // ini yang benar sesuai schema kamu
+        },
+      });
+
+      if (!tugas) {
+        return res.status(404).json({ error: "Tugas tidak ditemukan" });
+      }
+
+      // Validasi dosen pengajar jika user role Dosen
+      if (user.role === "Dosen") {
+        const isDosenPengajar = tugas.mataKuliah.dosen.some(
+          (d) => d.id === userId
+        );
+        if (!isDosenPengajar) {
+          return res.status(403).json({
+            error: "Anda tidak memiliki izin untuk mengedit tugas ini",
+          });
+        }
+      }
+
+      // Update data tugas
+      const updateData = {
+        judul: judul ?? tugas.judul,
+        deskripsi: deskripsi ?? tugas.deskripsi,
+        deadline: deadline ? new Date(deadline) : tugas.deadline,
+      };
+
+      const tugasUpdated = await prisma.tugas.update({
+        where: { id: parseInt(idTugas) },
+        data: updateData,
+      });
+
+      // Jika ada file upload baru
+      if (req.file) {
+        // Hapus file lama dari penyimpanan fisik jika ingin (opsional)
+
+        // Jika sebelumnya ada file tugas, update file, jika belum buat baru
+        if (tugas.files && tugas.files.length > 0) {
+          const fileTugasId = tugas.files[0].id;
+          await prisma.fileTugas.update({
+            where: { id: fileTugasId },
+            data: {
+              fileName: req.file.originalname,
+              filePath: `/uploads/${req.file.filename}`,
+              fileType: path.extname(req.file.originalname).replace(".", ""),
+              fileSize: req.file.size,
+            },
+          });
+        } else {
+          // Buat file tugas baru
+          await prisma.fileTugas.create({
+            data: {
+              tugasId: tugasUpdated.id,
+              fileName: req.file.originalname,
+              filePath: `/uploads/${req.file.filename}`,
+              fileType: path.extname(req.file.originalname).replace(".", ""),
+              fileSize: req.file.size,
+            },
+          });
+        }
+        
+      }
+
+      res.status(200).json({
+        message: "Tugas berhasil diperbarui",
+        tugas: tugasUpdated,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Gagal mengedit tugas" });
+    }
+  }
+);
+
+// Delete Tugas
+app.delete("/hapus-tugas/:idTugas", authenticateToken, async (req, res) => {
+  const { idTugas } = req.params;
+  const userId = Number(req.user.id);
+
+  try {
+    // Ambil data user
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || (user.role !== "Dosen" && user.role !== "Admin")) {
+      return res
+        .status(403)
+        .json({ error: "Hanya dosen atau admin yang dapat menghapus tugas" });
+    }
+
+    // Ambil tugas beserta relasi dosen dan files
+    const tugas = await prisma.tugas.findUnique({
+      where: { id: parseInt(idTugas) },
+      include: {
+        mataKuliah: {
+          include: {
+            dosen: true,
+          },
+        },
+        files: true,
+      },
+    });
+
+    if (!tugas) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan" });
+    }
+
+    // Validasi dosen pengajar jika user role Dosen
+    if (user.role === "Dosen") {
+      const isDosenPengajar = tugas.mataKuliah.dosen.some(
+        (d) => d.id === userId
+      );
+      if (!isDosenPengajar) {
+        return res.status(403).json({
+          error: "Anda tidak memiliki izin untuk menghapus tugas ini",
+        });
+      }
+    }
+
+    // Hapus file tugas dari filesystem & database
+    for (const file of tugas.files) {
+      const filePath = path.join(__dirname, file.filePath);
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.warn("Gagal hapus file fisik:", err.message);
+        }
+      });
+
+      await prisma.fileTugas.delete({
+        where: { id: file.id },
+      });
+    }
+
+    // Hapus tugas
+    await prisma.tugas.delete({
+      where: { id: parseInt(idTugas) },
+    });
+
+    res.json({ message: "Tugas berhasil dihapus" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Gagal menghapus tugas" });
+  }
+});
+
+//  Get All Tugas
+app.get("/tugas/:idMataKuliah", authenticateToken, async (req, res) => {
+  const userId = Number(req.user.id);
+  const { idMataKuliah } = req.params;
+
+  try {
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      include: {
+        mataKuliahDiajarkan: true,
+        mataKuliahDiikuti: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User tidak ditemukan" });
+    }
+
+    let tugasList = [];
+    const mataKuliahIdNum = Number(idMataKuliah);
+
+    if (user.role === "Dosen" || user.role === "Admin") {
+      // Pastikan dosen memang mengajar mata kuliah ini
+      const isPengajar = user.mataKuliahDiajarkan.some(mk => mk.id === mataKuliahIdNum);
+      if (!isPengajar && user.role !== "Admin") {
+        return res.status(403).json({ error: "Tidak punya akses ke mata kuliah ini" });
+      }
+
+      tugasList = await prisma.tugas.findMany({
+        where: { mataKuliahId: mataKuliahIdNum },
+        include: {
+          files: true
+        },
+      });
+
+      return res.json(tugasList); // Dosen/Admin tidak butuh status & nilai
+    }
+
+    if (user.role === "Mahasiswa") {
+      const ikut = await prisma.mataKuliahMahasiswa.findFirst({
+        where: {
+          mahasiswaId: user.id,
+          mataKuliahId: mataKuliahIdNum,
+        },
+      });
+  
+      if (!ikut) {
+        return res.status(403).json({ error: "Tidak terdaftar di mata kuliah ini" });
+      }
+  
+      tugasList = await prisma.tugas.findMany({
+        where: { mataKuliahId: mataKuliahIdNum },
+        include: {
+          files: true,
+          submissions: { // Pastikan nama relasi sesuai schema
+            where: { mahasiswaId: userId },
+            select: {
+              id: true,
+              fileUrl: true,
+              tanggalKumpul: true,
+              nilai: true
+            }
+          }
+        },
+      });
+
+      // Tambahkan status & nilai ke hasil
+      const formatted = tugasList.map(tugas => ({
+        id: tugas.id,
+        judul: tugas.judul,
+        deskripsi: tugas.deskripsi,
+        tanggalTugas: tugas.tanggalTugas,
+        deadline: tugas.deadline,
+        files: tugas.files,
+        status: tugas.submissions.length > 0,
+        nilai: tugas.submissions.length > 0 ? tugas.submissions[0].nilai : null,
+        waktuDikumpulkan: tugas.submissions.length > 0 ? tugas.submissions[0].tanggalKumpul : null
+      }));
+      
+
+      return res.json(formatted);
+    }
+
+    return res.status(403).json({ error: "Role tidak memiliki akses" });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Gagal mengambil data tugas" });
+  }
+});
+
+
+// Get Detail Tugas
+app.get("/tugas/detail/:idMataKuliah/:idTugas", authenticateToken, async (req, res) => {
+  const userId = Number(req.user.id);
+  const { idMataKuliah, idTugas } = req.params;
+  const mataKuliahIdNum = Number(idMataKuliah);
+
+  try {
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      include: {
+        mataKuliahDiajarkan: true,
+        mataKuliahDiikuti: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User tidak ditemukan" });
+    }
+
+    // Cari tugas dengan cek idMataKuliah juga
+    const tugas = await prisma.tugas.findFirst({
+      where: { 
+        id: Number(idTugas),
+        mataKuliahId: mataKuliahIdNum
+      },
+      include: {
+        files: true,
+        mataKuliah: true
+      },
+    });
+
+    if (!tugas) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan di mata kuliah ini" });
+    }
+
+    if (user.role === "Dosen" || user.role === "Admin") {
+      const isPengajar = user.mataKuliahDiajarkan.some(
+        (mk) => mk.id === mataKuliahIdNum
+      );
+      if (!isPengajar && user.role !== "Admin") {
+        return res.status(403).json({ error: "Tidak punya akses ke mata kuliah ini" });
+      }
+
+    } else if (user.role === "Mahasiswa") {
+      const ikut = await prisma.mataKuliahMahasiswa.findFirst({
+        where: {
+          mahasiswaId: user.id,
+          mataKuliahId: mataKuliahIdNum,
+        },
+      });
+
+      if (!ikut) {
+        return res.status(403).json({ error: "Tidak terdaftar di mata kuliah ini" });
+      }
+
+    } else {
+      return res.status(403).json({ error: "Role tidak memiliki akses" });
+    }
+
+    res.json(tugas);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Gagal mengambil detail tugas" });
+  }
+});
+
+// POST: Mahasiswa mengumpulkan tugas
+app.post("/tugas/kumpul/:idMataKuliah/:idTugas", authenticateToken, upload.single("file"), async (req, res) => {
+  const userId = Number(req.user.id);
+  const { idMataKuliah, idTugas } = req.params;
+  const mataKuliahIdNum = Number(idMataKuliah);
+
+  try {
+    // Ambil user
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      include: { mataKuliahDiikuti: true }
+    });
+
+    if (!user || user.role !== "Mahasiswa") {
+      return res.status(403).json({ error: "Hanya mahasiswa yang bisa mengumpulkan tugas" });
+    }
+
+    // Cek apakah mahasiswa terdaftar di mata kuliah
+    const ikut = await prisma.mataKuliahMahasiswa.findFirst({
+      where: {
+        mahasiswaId: user.id,
+        mataKuliahId: mataKuliahIdNum
+      }
+    });
+
+    if (!ikut) {
+      return res.status(403).json({ error: "Tidak terdaftar di mata kuliah ini" });
+    }
+
+    // Cek apakah tugas valid
+    const tugas = await prisma.tugas.findFirst({
+      where: {
+        id: Number(idTugas),
+        mataKuliahId: mataKuliahIdNum
+      }
+    });
+
+    if (!tugas) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan" });
+    }
+
+    // Pastikan file ada
+    if (!req.file) {
+      return res.status(400).json({ error: "File harus diunggah" });
+    }
+
+    // Cek apakah sudah pernah mengumpulkan
+    const existing = await prisma.pengumpulanTugas.findFirst({
+      where: {
+        tugasId: Number(idTugas),
+        mahasiswaId: userId
+      }
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: "Tugas sudah dikumpulkan" });
+    }
+
+    // Simpan pengumpulan tugas
+    const pengumpulan = await prisma.pengumpulanTugas.create({
+      data: {
+        tugasId: Number(idTugas),
+        mahasiswaId: userId,
+        fileUrl: `/uploads/${req.file.filename}`
+      }
+    });
+
+    res.json({
+      message: "Tugas berhasil dikumpulkan",
+      data: pengumpulan
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Gagal mengumpulkan tugas" });
+  }
+});
+
+// PUT: Mahasiswa update pengumpulan tugas
+app.put("/tugas/kumpul/:idMataKuliah/:idTugas", authenticateToken, upload.single("file"), async (req, res) => {
+  const userId = Number(req.user.id);
+  const { idMataKuliah, idTugas } = req.params;
+  const mataKuliahIdNum = Number(idMataKuliah);
+
+  try {
+    // Ambil user
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      include: { mataKuliahDiikuti: true }
+    });
+
+    if (!user || user.role !== "Mahasiswa") {
+      return res.status(403).json({ error: "Hanya mahasiswa yang bisa mengumpulkan tugas" });
+    }
+
+    // Cek apakah mahasiswa terdaftar di mata kuliah
+    const ikut = await prisma.mataKuliahMahasiswa.findFirst({
+      where: {
+        mahasiswaId: user.id,
+        mataKuliahId: mataKuliahIdNum
+      }
+    });
+
+    if (!ikut) {
+      return res.status(403).json({ error: "Tidak terdaftar di mata kuliah ini" });
+    }
+
+    // Cek apakah tugas valid
+    const tugas = await prisma.tugas.findFirst({
+      where: {
+        id: Number(idTugas),
+        mataKuliahId: mataKuliahIdNum
+      }
+    });
+
+    if (!tugas) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan" });
+    }
+
+    // Pastikan file ada
+    if (!req.file) {
+      return res.status(400).json({ error: "File harus diunggah" });
+    }
+
+    // Cek apakah sudah pernah mengumpulkan
+    const existing = await prisma.pengumpulanTugas.findFirst({
+      where: {
+        tugasId: Number(idTugas),
+        mahasiswaId: userId
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Belum pernah mengumpulkan tugas ini" });
+    }
+
+    // Update pengumpulan tugas
+    const updated = await prisma.pengumpulanTugas.update({
+      where: { id: existing.id },
+      data: {
+        fileUrl: `/uploads/${req.file.filename}`,
+        tanggalKumpul: new Date()
+      }
+    });
+
+    res.json({
+      message: "Tugas berhasil diperbarui",
+      data: updated
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Gagal memperbarui tugas" });
+  }
+});
+
+// GET /tugas/:tugasId/status
+app.get("/tugas/:tugasId/status", authenticateToken, async (req, res) => {
+  try {
+    const tugasId = parseInt(req.params.tugasId);
+    const userId = Number(req.user.id);
+    const pengumpulan = await prisma.pengumpulanTugas.findFirst({
+      where: {
+        tugasId,
+        mahasiswaId: userId,
+      }
+    });
+
+    if (pengumpulan) {
+      res.json({
+        status: true,
+        data: pengumpulan
+      });
+    } else {
+      res.json({
+        status: false,
+        data: null
+      });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+app.get("/cek/tugas/belum-selesai/matakuliah/:idMataKuliah", authenticateToken, async (req, res) => {
+  try {
+    const idMataKuliah = parseInt(req.params.idMataKuliah);
+    const userId = Number(req.user.id);
+
+    // Pastikan user adalah mahasiswa
+    const user = await prisma.users.findUnique({ where: { id: userId } });
+    if (!user || user.role !== "Mahasiswa") {
+      return res.status(403).json({ error: "Hanya mahasiswa yang bisa mengakses data ini" });
+    }
+
+    // Cek apakah mahasiswa ini terdaftar di mata kuliah tersebut
+    const ikutMataKuliah = await prisma.mataKuliahMahasiswa.findFirst({
+      where: {
+        mahasiswaId: userId,
+        mataKuliahId: idMataKuliah,
+      },
+    });
+    if (!ikutMataKuliah) {
+      return res.status(403).json({ error: "Mahasiswa tidak terdaftar di mata kuliah ini" });
+    }
+
+    // Ambil semua tugas di mata kuliah + status dan nilai
+    const tugasList = await prisma.tugas.findMany({
+      where: { mataKuliahId: idMataKuliah },
+      include: {
+        submissions: {
+          where: { mahasiswaId: userId },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    // Hitung jumlah tugas yang belum dikumpulkan (belum dikerjakan)
+    const jumlahBelum = tugasList.filter(tugas => tugas.submissions.length === 0).length;
+
+    res.json({
+      mataKuliahId: idMataKuliah,
+      jumlahTugasBelum: jumlahBelum,
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+app.get("/get-data-pengumpulan-tugas/:idTugas", authenticateToken, async (req, res) => {
+  try {
+    const { idTugas } = req.params;
+    const userId = req.user.id; // Dari token JWT
+
+    // 1. Cek apakah tugas ini memang dibuat oleh dosen yang login
+    const tugas = await prisma.tugas.findUnique({
+      where: { id: parseInt(idTugas) },
+      select: { dosenId: true }
+    });
+
+    if (!tugas) {
+      return res.status(404).json({
+        status: "error",
+        message: "Tugas tidak ditemukan"
+      });
+    }
+
+    if (tugas.dosenId !== userId) {
+      return res.status(403).json({
+        status: "error",
+        message: "Anda tidak memiliki akses ke data ini"
+      });
+    }
+
+    // 2. Ambil data pengumpulan tugas
+    const dataPengumpulan = await prisma.pengumpulanTugas.findMany({
+      where: {
+        tugasId: parseInt(idTugas)
+      },
+      include: {
+        mahasiswa: {
+          select: {
+            id: true,
+            nama: true,
+            email: true
+          }
+        },
+        tugas: {
+          select: {
+            judul: true,
+            mataKuliah: {
+              select: { nama: true }
+            }
+          }
+        }
+      },
+      orderBy: { tanggalKumpul: "desc" }
+    });
+
+    res.json({
+      status: "success",
+      data: dataPengumpulan
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: "error",
+      message: "Terjadi kesalahan saat mengambil data pengumpulan tugas"
+    });
+  }
+});
+
+app.put("/update-nilai", authenticateToken, async (req, res) => {
+  try {
+    const { data } = req.body;
+
+    // 1. Validasi format data
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(400).json({ message: "Format data harus array dan tidak boleh kosong" });
+    }
+
+    // 2. Ambil semua idPengumpulan dari request
+    const idsPengumpulan = data
+      .map(item => parseInt(item.idPengumpulan))
+      .filter(id => !isNaN(id));
+
+    if (idsPengumpulan.length === 0) {
+      return res.status(400).json({ message: "ID pengumpulan tidak valid" });
+    }
+
+    // 3. Ambil data pengumpulan beserta informasi tugas dan dosen pembuatnya
+    const pengumpulanData = await prisma.pengumpulanTugas.findMany({
+      where: {
+        id: { in: idsPengumpulan }
+      },
+      include: {
+        tugas: {
+          select: {
+            id: true,
+            dosenId: true
+          }
+        }
+      }
+    });
+
+    if (pengumpulanData.length === 0) {
+      return res.status(404).json({ message: "Data pengumpulan tidak ditemukan" });
+    }
+
+    // 4. Pastikan semua pengumpulan ini dibuat oleh dosen yang login
+    const userId = req.user.id;
+    const semuaDibuatOlehDosenIni = pengumpulanData.every(
+      item => item.tugas.dosenId === userId
+    );
+
+    if (!semuaDibuatOlehDosenIni) {
+      return res.status(403).json({ message: "Anda tidak berhak mengubah nilai pada tugas ini" });
+    }
+
+    // 5. Update semua nilai
+    const updates = await Promise.all(
+      data.map(item =>
+        prisma.pengumpulanTugas.update({
+          where: { id: parseInt(item.idPengumpulan) },
+          data: { nilai: item.nilai }
+        })
+      )
+    );
+
+    res.json({ message: "Nilai berhasil diperbarui", updates });
+  } catch (error) {
+    console.error("Error update nilai:", error);
+    res.status(500).json({ message: "Terjadi kesalahan pada server" });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -22,6 +22,8 @@ model users {
   tanggalDaftar       DateTime                     @default(now()) // Waktu pengguna mendaftar
   kuisionerMahasiswa  Kuisioner[]                  @relation("MahasiswaKuisioner")
   kuisionerDosen      Kuisioner[]                  @relation("DosenKuisioner")
+  tugasDosen          Tugas[]                      @relation("DosenTugas")      // ← relasi balik dosen ke tugas
+  tugasMahasiswa PengumpulanTugas[] @relation("MahasiswaTugas")
 }
 
 /// Tabel Mata Kuliah
@@ -34,6 +36,7 @@ model MataKuliah {
   kodeGabung    String                @unique @db.VarChar(100)
   tanggalDibuat DateTime              @default(now()) // Waktu saat dosen membuat mata kuliah
   kuisioner     Kuisioner[]   @relation("MataKuliahKuisioner")
+  tugas         Tugas[]               // ← relasi balik ke Tugas
 }
 
 /// Tabel relasi antara Mahasiswa dan Mata Kuliah
@@ -160,6 +163,43 @@ model OtpToken {
   createdAt DateTime @default(now())
 
   @@index([email])
+}
+
+model Tugas {
+  id            Int                  @id @default(autoincrement())
+  judul         String               @db.VarChar(200) // Judul tugas
+  deskripsi     String               @db.LongText     // Deskripsi tugas
+  mataKuliah    MataKuliah           @relation(fields: [mataKuliahId], references: [id], onDelete: Cascade, map: "fk_tugas_mata_kuliah")
+  mataKuliahId  Int
+  dosen         users                @relation("DosenTugas", fields: [dosenId], references: [id], onDelete: Cascade)
+  dosenId       Int
+  tanggalDibuat DateTime             @default(now())
+  deadline      DateTime?            // Opsional, batas waktu pengumpulan
+  submissions   PengumpulanTugas[]
+  files         FileTugas[]          // Relasi ke file tugas
+}
+
+model FileTugas {
+  id         Int      @id @default(autoincrement())
+  tugas      Tugas    @relation(fields: [tugasId], references: [id], onDelete: Cascade)
+  tugasId    Int
+  fileName   String   @db.VarChar(255) // Nama file asli
+  filePath   String   @db.VarChar(500) // Lokasi file di server
+  fileType   String?  @db.VarChar(50)  // Misalnya pdf, docx, png
+  fileSize   Int?     // Dalam byte
+  uploadedAt DateTime @default(now())
+}
+
+/// Tabel untuk pengumpulan tugas mahasiswa
+model PengumpulanTugas {
+  id           Int       @id @default(autoincrement())
+  tugas        Tugas     @relation(fields: [tugasId], references: [id], onDelete: Cascade)
+  tugasId      Int
+  mahasiswa users @relation("MahasiswaTugas", fields: [mahasiswaId], references: [id], onDelete: Cascade)
+  mahasiswaId Int
+  fileUrl      String    @db.Text   // Lokasi file yang dikumpulkan
+  tanggalKumpul DateTime @default(now())
+  nilai        Float?    // Nilai tugas, opsional
 }
 
 
