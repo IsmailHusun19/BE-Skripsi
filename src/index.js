@@ -643,11 +643,11 @@ app.delete('/users/:id', authenticateToken, async (req, res) => {
 
 // Logout
 app.post('/logout', (req, res) => {
-  res.cookie('jwt', '', { 
-    httpOnly: true, 
-    secure: false, // Atur ke true jika Anda menggunakan HTTPS
-    sameSite: 'Strict', 
-    expires: new Date(0) // Set expires ke tanggal yang sudah lewat
+  res.cookie("jwt", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    expires: new Date(0),
   });
   res.status(200).json({ message: 'Logout successful' });
 });
